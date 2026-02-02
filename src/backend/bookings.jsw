@@ -1,0 +1,13 @@
+import { webMethod, Permissions } from 'wix-web-module';
+import { bookings } from 'wix-bookings-backend';
+
+// Function to cancel a booking
+export const cancelBooking = webMethod(Permissions.Anyone, async (bookingId) => {
+    try {
+        const result = await bookings.cancelBooking(bookingId);
+        return result;
+    } catch (error) {
+        console.error("Error cancelling booking:", error);
+        throw new Error("Failed to cancel booking.");
+    }
+});

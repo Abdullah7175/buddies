@@ -1,0 +1,179 @@
+
+import { Permissions, webMethod } from "wix-web-module";
+
+import { bookings, availabilityCalendar } from "wix-bookings-backend";
+
+import { services } from 'wix-bookings-backend';
+
+
+
+export const updateCustomerInfo = webMethod(Permissions.Anyone, async (bookingId, numberOfKids, numberOfWeeks) => {
+    const formInfo = {
+        additionalFields: [
+            {
+                value: numberOfKids.toString(),
+                _id: "00000000-0000-0000-0000-000000000008", // Assuming this is the ID for "How many children per week?"
+                label: "How many children per week?"
+            },
+            {
+                value: numberOfWeeks.toString(),
+                _id: "00000000-0000-0000-0000-000000000009", // Assuming this is the ID for "How many weeks is this for?"
+                label: "How many weeks is this for?"
+            }
+        ],
+    };
+    return bookings
+        .updateCustomerInfo(bookingId, formInfo)
+        .then((booking) => {
+            return booking;
+        })
+        .catch((error) => {
+            return error;
+        });
+});
+
+export async function createBookingSession(booking, options = {}) {
+
+    console.log(booking," --TTT- ",options);
+
+    try {
+
+        const normalized = normalizeBooking(booking);
+
+        const result = await bookings.createBooking(normalized, { ...options }); // suppressAuth removed (not in CreateBookingOptions)
+
+        return result;
+
+    } catch (error) {
+
+        console.error(error);
+
+        return error;
+
+    }
+
+}
+
+
+
+export function confirmBooking(bookingId) {
+
+    const confirmBookingOptions = {
+
+        participantNotification: {
+
+            notifyParticipants: true,
+
+            message: "We are pleased to let you know that your booking has been confirmed"
+
+        },
+
+        suppressAuth: true
+
+    };
+
+
+
+    return bookings
+
+        .confirmBooking(bookingId, confirmBookingOptions)
+
+        .then((result) => {
+
+            return result;
+
+        })
+
+        .catch((error) => {
+
+            return error;
+
+        });
+
+}
+
+
+
+export async function getService(serviceId) {
+
+    try {
+
+        return services.getService(serviceId);
+
+    } catch (error) {
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+export async function queryAvailabilityService(idService, dateStart, dateEnd) {
+
+    let query = {
+
+        fields: ["sessionId"],
+
+        filter: {
+
+            startDate: dateStart,
+
+            endDate: dateEnd,
+
+            serviceId: idService
+
+        }
+
+    };
+
+    let options = {
+
+        timezone: "UTC"
+
+    };
+
+
+
+    try {
+
+        const result = await availabilityCalendar.queryAvailability(query, options);
+
+        return result;
+
+    } catch (error) {
+
+        console.error(error);
+
+    }
+
+}
+
+
+
+// Normalize slot dates to ISO strings if Date objects are passed
+
+function normalizeBooking(booking) {
+
+    const b = { ...booking };
+
+    if (b.bookedEntity?.slot) {
+
+        const s = { ...b.bookedEntity.slot };
+
+        if (s.startDate instanceof Date) s.startDate = s.startDate.toISOString();
+
+        if (s.endDate instanceof Date) s.endDate = s.endDate.toISOString();
+
+        if (s.startDateTime instanceof Date) s.startDateTime = s.startDateTime.toISOString();
+
+        if (s.endDateTime instanceof Date) s.endDateTime = s.endDateTime.toISOString();
+
+        b.bookedEntity.slot = s;
+
+    }
+
+    return b;
+
+}

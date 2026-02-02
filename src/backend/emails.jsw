@@ -1,0 +1,15 @@
+import { triggeredEmails } from 'wix-crm-backend';
+
+export function sendEmailContact(emailId, contactId, data) {
+    const options = {
+        variables: data
+    }
+
+    return triggeredEmails.emailContact(emailId, contactId, options)
+        .then(() => {
+            console.log("Email was sent to contact");
+        })
+        .catch((error) => {
+            console.error(error);
+        });
+}
