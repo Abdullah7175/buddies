@@ -1,41 +1,61 @@
-import wixData from 'wix-data';
-
-export async function getAllOrders() {
-    let options = {
-        "suppressAuth": true
-    };
-
-    let orders = null;
-
-    await wixData.query("Stores/Orders")
-        .find(options)
-        .then((results) => {
-            orders = results;
-        });
-
-    return orders;
-}
-
-export async function getAllItems(nameCollection, limit) {
-
-    let options = {
-        "suppressAuth": true
-    };
-
-    let results = await wixData.query(nameCollection)
-        .limit(limit)
-        .find(options);
-    let allItems = results.items;
-    while (results.hasNext()) {
-        results = await results.next();
-        allItems = allItems.concat(results.items);
-    }
-
-    return allItems;
-}
-
-export function getOrders() {
-    let products = getAllItems("Stores/Orders", 100);
-
-    return products;
+import { orders } from 'wix-ecom-backend';
+import { Permissions, webMethod } from 'wix-web-module';
+
+export const getAllOrders = webMethod(Permissions.Anyone, async () => {
+    try {
+        // Use the new Orders API to search for orders
+        const searchOptions = {
+            filter: {
+                // Get all orders except INITIALIZED status
+                status: { $ne: "INITIALIZED" }
+            },
+            sort: [
+                { fieldName: "_createdDate", order: "desc" }
+            ],
+            paging: {
+                limit: 100
+            }
+        };
+
+        const result = await orders.searchOrders(searchOptions);
+        console.log("Orders API result:", result);
+
+        return result;
+    } catch (error) {
+        console.error("Error getting orders:", error);
+        // Fallback to old method if new API fails
+        try {
+            const wixData = require('wix-data');
+            const options = { "suppressAuth": true };
+            const results = await wixData.query("Stores/Orders").find(options);
+            return results;
+        } catch (fallbackError) {
+            console.error("Fallback also failed:", fallbackError);
+            return { items: [] };
+        }
+    }
+});
+
+export async function getAllItems(nameCollection, limit) {
+
+    let options = {
+        "suppressAuth": true
+    };
+
+    let results = await wixData.query(nameCollection)
+        .limit(limit)
+        .find(options);
+    let allItems = results.items;
+    while (results.hasNext()) {
+        results = await results.next();
+        allItems = allItems.concat(results.items);
+    }
+
+    return allItems;
+}
+
+export function getOrders() {
+    let products = getAllItems("Stores/Orders", 100);
+
+    return products;
 }

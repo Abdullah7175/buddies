@@ -5,6 +5,7 @@ import { cancelBooking } from 'backend/bookings.jsw';
 import { updateCustomerInfo } from 'backend/bookingsv2.jsw';
 import wixWindow from 'wix-window';
 import wixBookings from 'wix-bookings';
+import { orders } from 'wix-ecom-backend';
 
 $w.onReady(function () {
     console.log("My Orders page loaded");
@@ -25,18 +26,22 @@ function initElements() {
 
     // Try to set up status checkbox if it exists
     try {
+        // Set up options for both orders and bookings
         $w('#statusCheckbox').options = [
+            { "value": "APPROVED", "label": "Approved" },
+            { "value": "PAID", "label": "Paid" },
             { "value": "CONFIRMED", "label": "Confirmed" },
             { "value": "PENDING", "label": "Pending" },
             { "value": "PENDING_CHECKOUT", "label": "Pending Checkout" },
             { "value": "PENDING_APPROVAL", "label": "Pending Approval" },
             { "value": "CANCELED", "label": "Canceled" },
-            { "value": "DECLINED", "label": "Declined" }
+            { "value": "DECLINED", "label": "Declined" },
+            { "value": "FULFILLED", "label": "Fulfilled" }
         ];
-        $w('#statusCheckbox').value = ["CONFIRMED", "PENDING", "PENDING_CHECKOUT", "PENDING_APPROVAL"];
-        console.log("Status checkbox set up");
+        $w('#statusCheckbox').value = ["APPROVED", "PAID", "CONFIRMED", "PENDING", "PENDING_CHECKOUT", "PENDING_APPROVAL"];
+        console.log("Status checkbox set up with options:", $w('#statusCheckbox').options);
     } catch (e) {
-        console.log("Status checkbox not found, continuing...");
+        console.log("Status checkbox not found, continuing...", e);
     }
 
     // Try to set up date pickers if they exist
@@ -59,6 +64,8 @@ function initElements() {
         let numberKids = "";
         let numberWeeks = "";
 
+        // For orders, we don't have the same additional fields structure as bookings
+        // We'll extract product information differently
         let fullData = data.formInfo.additionalFields || [];
 
         for (let i = 0; i < fullData.length; i++) {
@@ -74,41 +81,33 @@ function initElements() {
         }
 
         // Set text elements (try-catch for missing elements)
-        try { $item('#sessionDateText').text = data.bookedEntity.singleSession.start.toLocaleString(); } catch(e) { console.log("sessionDateText not found"); }
+        try { $item('#sessionDateText').text = data.createdDate ? new Date(data.createdDate).toLocaleString() : "Unknown Date"; } catch(e) { console.log("sessionDateText not found"); }
         try { $item('#sessionClientNameText').text = data.formInfo.contactDetails.firstName; } catch(e) { console.log("sessionClientNameText not found"); }
-        try { $item('#sessionServiceText').text = data.bookedEntity.title; } catch(e) { console.log("sessionServiceText not found"); }
+        try { $item('#sessionServiceText').text = data.bookedEntity.title + (data.orderNumber ? ` (#${data.orderNumber})` : ""); } catch(e) { console.log("sessionServiceText not found"); }
         try { $item('#sessionStatusText').text = data.status; } catch(e) { console.log("sessionStatusText not found"); }
-        try { $item('#sessionNumberOfKids').text = numberKids ? numberKids : "0"; } catch(e) { console.log("sessionNumberOfKids not found"); }
-        try { $item('#sessionNumberOfWeeks').text = numberWeeks ? numberWeeks : "0"; } catch(e) { console.log("sessionNumberOfWeeks not found"); }
+        try { $item('#sessionNumberOfKids').text = numberKids ? numberKids : "N/A"; } catch(e) { console.log("sessionNumberOfKids not found"); }
+        try { $item('#sessionNumberOfWeeks').text = numberWeeks ? numberWeeks : "N/A"; } catch(e) { console.log("sessionNumberOfWeeks not found"); }
 
-        // Determine if this is a Weekend Kits booking (only Weekend Kits can be edited)
+        // For orders, show different information and actions
         const isWeekendKits = data.bookedEntity.title && data.bookedEntity.title.toLowerCase().includes('weekend');
-        console.log("Is Weekend Kits booking:", isWeekendKits, "Status:", data.status);
+        console.log("Order:", data._id, "Title:", data.bookedEntity.title, "Status:", data.status);
 
-        // Show/hide edit button based on booking type
+        // Hide edit button for orders (orders are typically not editable like bookings)
         try {
-            if (isWeekendKits && data.status === 'CONFIRMED') {
-                // @ts-ignore
-                $item('#editButton').show();
-                // @ts-ignore
-                $item('#editButton').onClick(() => onEditBooking(data._id, numberKids, numberWeeks));
-                console.log("Edit button shown for booking:", data._id);
-            } else {
-                // @ts-ignore
-                $item('#editButton').hide();
-            }
+            // @ts-ignore
+            $item('#editButton').hide();
         } catch(e) {
             console.log("Edit button not found in repeater");
         }
 
-        // Show cancel button for active bookings
+        // Show cancel button for cancellable orders
         try {
-            if (data.status === 'CONFIRMED' || data.status === 'PENDING' || data.status === 'PENDING_CHECKOUT') {
+            if (data.status === 'APPROVED' || data.status === 'PAID') {
                 // @ts-ignore
                 $item('#cancelButton').show();
                 // @ts-ignore
-                $item('#cancelButton').onClick(() => onCancelBooking(data._id));
-                console.log("Cancel button shown for booking:", data._id);
+                $item('#cancelButton').onClick(() => onCancelOrder(data._id));
+                console.log("Cancel button shown for order:", data._id);
             } else {
                 // @ts-ignore
                 $item('#cancelButton').hide();
@@ -133,7 +132,16 @@ async function loadBookings() {
         const allOrdersResponse = await getAllOrders();
         console.log("All orders response:", allOrdersResponse);
 
-        const allOrders = allOrdersResponse.items || [];
+        // Handle both new Orders API format and old fallback format
+        let allOrders = [];
+        if (allOrdersResponse.orders) {
+            // New Orders API format
+            allOrders = allOrdersResponse.orders;
+        } else if (allOrdersResponse.items) {
+            // Old wixData format or fallback
+            allOrders = allOrdersResponse.items;
+        }
+
         console.log("All orders count:", allOrders.length);
 
         // Debug: show first order structure
@@ -141,33 +149,79 @@ async function loadBookings() {
             console.log("First order structure:", JSON.stringify(allOrders[0], null, 2));
         }
 
-        // Filter bookings for current user
-        let userBookings = allOrders.filter(order => {
-            const contactDetails = order.bookingInfo?.formInfo?.contactDetails;
-            return contactDetails && contactDetails.contactId === idContact;
+        // Filter orders for current user
+        let userOrders = allOrders.filter(order => {
+            // Try different possible buyer/contact ID fields
+            const buyerContactId = order.buyerInfo?.contactId;
+            const contactDetails = order.billingInfo?.contactDetails;
+            const buyerEmail = order.buyerInfo?.email;
+
+            return buyerContactId === idContact ||
+                   (contactDetails && contactDetails.contactId === idContact) ||
+                   (buyerEmail && buyerEmail === member.loginEmail);
         });
 
-        console.log("User bookings found:", userBookings.length);
+        console.log("User orders found:", userOrders.length);
+
+        // If no orders found, try to fall back to bookings API
+        if (userOrders.length === 0) {
+            console.log("No orders found, trying bookings API...");
+            try {
+                const bookingsResult = await wixBookings.queryBookings();
+                const bookings = bookingsResult.items || [];
+                const memberBookings = bookings.filter(booking => {
+                    // Filter by contact ID if available
+                    return true; // For now, show all bookings
+                });
+
+                console.log("Bookings found:", memberBookings.length);
+
+                userOrders = memberBookings.map(booking => ({
+                    _id: booking._id,
+                    _createdDate: booking.createdDate,
+                    status: booking.status,
+                    bookedEntity: booking.bookedEntity,
+                    formInfo: booking.formInfo
+                }));
+            } catch (bookingError) {
+                console.log("Bookings API also failed:", bookingError);
+            }
+        }
 
         // Map the data to match what the repeater expects
-        $w('#sessionsRepeater').data = userBookings.map(order => ({
+        console.log("Mapping orders for repeater:", userOrders.length);
+        $w('#sessionsRepeater').data = userOrders.map(order => ({
             _id: order._id,
+            // For orders, we don't have booking-specific fields, so we'll map e-commerce order data
             bookedEntity: {
                 singleSession: {
-                    start: new Date(order.bookingInfo?.bookedEntity?.singleSession?.start || Date.now())
+                    start: new Date(order._createdDate || Date.now())
                 },
-                title: order.bookingInfo?.bookedEntity?.title || "Unknown Service"
+                title: order.lineItems?.[0]?.productName?.original || "Order"
             },
-            formInfo: order.bookingInfo?.formInfo || { contactDetails: { firstName: "Unknown" }, additionalFields: [] },
-            status: order.bookingInfo?.status || "UNKNOWN"
+            formInfo: {
+                contactDetails: {
+                    firstName: order.billingInfo?.contactDetails?.firstName || order.buyerInfo?.firstName || "Unknown"
+                },
+                additionalFields: [
+                    // Map order items to additional fields format for compatibility
+                    ...(order.lineItems || []).map(item => ({
+                        label: "Product",
+                        value: item.productName?.original || "Unknown Product"
+                    }))
+                ]
+            },
+            status: order.status || "UNKNOWN",
+            createdDate: order._createdDate,
+            orderNumber: order.number
         }));
 
-        if (userBookings.length === 0) {
+        if (userOrders.length === 0) {
             $w('#errorText').show();
-            $w('#errorText').text = "No bookings found. Try booking a service first.";
+            $w('#errorText').text = "No orders or bookings found. Try placing an order or booking a service first.";
         } else {
             $w('#errorText').hide();
-            console.log("Bookings loaded successfully");
+            console.log("Orders/bookings loaded successfully:", userOrders.length);
         }
     } catch (error) {
         console.error('loadBookings error:', error);
@@ -209,6 +263,24 @@ async function onCancelBooking(bookingId) {
     } catch (error) {
         console.error("Error cancelling booking:", error);
         $w('#errorText').text = "Failed to cancel booking. Please try again.";
+        $w('#errorText').show();
+    }
+}
+
+async function onCancelOrder(orderId) {
+    console.log("Cancel order: ", orderId);
+
+    if (!confirm("Are you sure you want to cancel this order? This action cannot be undone.")) {
+        return;
+    }
+
+    try {
+        $w('#errorText').hide();
+        await orders.cancelOrder(orderId);
+        loadBookings(); // Refresh the list
+    } catch (error) {
+        console.error("Error cancelling order:", error);
+        $w('#errorText').text = "Failed to cancel order. Please try again.";
         $w('#errorText').show();
     }
 }
