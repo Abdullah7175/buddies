@@ -8,28 +8,38 @@ import { services } from 'wix-bookings-backend';
 
 
 export const updateCustomerInfo = webMethod(Permissions.Anyone, async (bookingId, numberOfKids, numberOfWeeks) => {
-    const formInfo = {
-        additionalFields: [
-            {
-                value: numberOfKids.toString(),
-                _id: "00000000-0000-0000-0000-000000000008", // Assuming this is the ID for "How many children per week?"
-                label: "How many children per week?"
-            },
-            {
-                value: numberOfWeeks.toString(),
-                _id: "00000000-0000-0000-0000-000000000009", // Assuming this is the ID for "How many weeks is this for?"
-                label: "How many weeks is this for?"
+    try {
+        // First get the existing booking to get the correct field IDs
+        const existingBooking = await bookings.getBooking(bookingId);
+
+        // Find the field IDs from the existing booking data
+        const additionalFields = existingBooking.formInfo.additionalFields || [];
+
+        // Update the values for the existing fields
+        const updatedFields = additionalFields.map(field => {
+            if (field.label === "How many children per week?") {
+                return {
+                    ...field,
+                    value: numberOfKids.toString()
+                };
+            } else if (field.label === "How many weeks is this for?") {
+                return {
+                    ...field,
+                    value: numberOfWeeks.toString()
+                };
             }
-        ],
-    };
-    return bookings
-        .updateCustomerInfo(bookingId, formInfo)
-        .then((booking) => {
-            return booking;
-        })
-        .catch((error) => {
-            return error;
+            return field;
         });
+
+        const formInfo = {
+            additionalFields: updatedFields,
+        };
+
+        return await bookings.updateCustomerInfo(bookingId, formInfo);
+    } catch (error) {
+        console.error("Error updating booking:", error);
+        throw new Error("Failed to update booking: " + error.message);
+    }
 });
 
 export async function createBookingSession(booking, options = {}) {
