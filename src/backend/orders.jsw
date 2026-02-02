@@ -1,5 +1,6 @@
 import { orders } from 'wix-ecom-backend';
 import { Permissions, webMethod } from 'wix-web-module';
+import wixData from 'wix-data';
 
 export const getAllOrders = webMethod(Permissions.Anyone, async () => {
     try {
@@ -25,7 +26,6 @@ export const getAllOrders = webMethod(Permissions.Anyone, async () => {
         console.error("Error getting orders:", error);
         // Fallback to old method if new API fails
         try {
-            const wixData = require('wix-data');
             const options = { "suppressAuth": true };
             const results = await wixData.query("Stores/Orders").find(options);
             return results;
